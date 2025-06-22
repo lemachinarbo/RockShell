@@ -206,19 +206,34 @@ class PwInstaller extends Command
   {
     $this->write("Checking compatibility ...");
     $errors = 0;
+    $modRewriteWarning = false;
     $this->browser
       ->getCrawler()
       ->filter('div.uk-section-muted > div.uk-container > div')
-      ->each(function (Crawler $el) use (&$errors) {
+      ->each(function (Crawler $el) use (&$errors, &$modRewriteWarning) {
         $text = $el->text();
         $outer = $el->outerHtml();
         if (strpos($outer, 'fa-check')) $this->success($text);
         else {
           $errors++;
           $this->warn($text);
+          if (
+            stripos($text, 'mod_rewrite') !== false &&
+            stripos($text, 'unable to determine') !== false
+          ) {
+            $modRewriteWarning = true;
+          }
         }
       });
     if ($errors) {
+      // In lazy mode, skip endless mod_rewrite check
+      if ($this->lazy && $modRewriteWarning) {
+        $this->warn('Skipping mod_rewrite check in lazy mode. Proceeding with installation.');
+        $this->skipWelcome = true;
+        $this->skipNextConfirm = true;
+        $this->browser->submitForm('Continue to Next Step');
+        return;
+      }
       // In lazy mode, always continue
       if ($this->lazy) {
         $this->skipWelcome = true;
