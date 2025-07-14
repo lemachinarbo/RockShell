@@ -79,7 +79,7 @@ class PwInstaller extends Command
       return self::FAILURE;
     }
 
-    if (getcwd() !== $this->app->docroot()) {
+    if (rtrim(getcwd(), '/') !== rtrim($this->app->docroot(), '/')) {
         $this->warn("Warning: Current working directory is not the expected docroot!");
         $this->warn("Current: " . getcwd());
         $this->warn("Expected: " . $this->app->docroot());
