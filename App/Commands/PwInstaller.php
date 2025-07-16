@@ -7,9 +7,27 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\DomCrawler\Field\ChoiceFormField;
 use Symfony\Component\HttpClient\HttpClient;
-use Dotenv\Dotenv;
 
-require_once dirname(__DIR__, 3) . '/vendor/autoload.php'; // Loads from one-command/vendor
+// Optional .env support for advanced setups:
+// 
+// RockShell can load environment variables from a .env file if you want to use them.
+// To enable this feature, install the Dotenv library in your project root:
+//   composer require vlucas/phpdotenv
+// Then place your .env file in the project root directory.
+// 
+// If Dotenv is not installed or no .env file is present, RockShell will work as usual without .env
+
+$projectRoot = getenv('DDEV_APPROOT') ?: dirname(__DIR__, 3);
+$autoload = $projectRoot . '/vendor/autoload.php';
+if (file_exists($autoload)) {
+    require_once $autoload;
+}
+if (class_exists('Dotenv\\Dotenv')) {
+    if (file_exists($projectRoot . '/.env')) {
+        $dotenv = \Dotenv\Dotenv::createImmutable($projectRoot);
+        $dotenv->load();
+    }
+}
 
 class PwInstaller extends Command
 {
@@ -28,22 +46,7 @@ class PwInstaller extends Command
   
   private $installerConfig = [
 
-    'debug' => [
-      'env' => 'DEBUG',
-      'default' => false
-    ],
-    'downloadProcesswire' => [
-      'env' => 'DOWN_PROCESSWIRE',
-      'default' => true
-    ],
-    'processwireVersion' => [
-      'env' => 'PW_VERSION',
-      'default' => 'dev'
-    ],
-    'siteProfile' => [
-      'env' => 'SITE_PROFILE',
-      'default' => 'site-blank'
-    ],
+    # Database settings
     'dbName' => [
       'env' => 'DB_NAME',
       'default' => 'db'
@@ -76,10 +79,15 @@ class PwInstaller extends Command
       'env' => 'DB_CON',
       'default' => 'Hostname'
     ],
+    'dbSocket' => [
+      'env' => 'DB_SOCKET',
+      'default' => null
+    ],
     'dbTablesAction' => [
       'env' => 'DB_TABLES_ACTION',
       'default' => 'remove'
     ],
+    # Admin settings
     'admin_name' => [
       'env' => 'ADMIN_NAME',
       'default' => 'processwire'
@@ -100,6 +108,7 @@ class PwInstaller extends Command
       'env' => 'TIMEZONE',
       'default' => 'utc'
     ],
+    # Files and folders permissions
     'chmodDir' => [
       'env' => 'CHMOD_DIR',
       'default' => '0755'
@@ -108,23 +117,37 @@ class PwInstaller extends Command
       'env' => 'CHMOD_FILE',
       'default' => '0644'
     ],
+
+    # Hosts and debug settings
     'httpHosts' => [
       'env' => 'HTTP_HOSTS',
       'default' => null
     ],
-    'dbSocket' => [
-      'env' => 'DB_SOCKET',
-      'default' => null
+    'debugMode' => [
+      'env' => 'DEBUG',
+      'default' => 0
     ],
-    # Enable interactive shell
-    'interactive_shell' => [
+
+    # Installer settings
+    'downloadProcesswire' => [
+      'env' => 'DOWN_PROCESSWIRE',
+      'default' => 1
+    ],
+    'processwireVersion' => [
+      'env' => 'PW_VERSION',
+      'default' => 'dev'
+    ],
+    'siteProfile' => [
+      'env' => 'SITE_PROFILE',
+      'default' => 'site-blank'
+    ],
+    'debug' => [ # Enables interactive shell
       'env' => 'INTERACTIVE_SHELL',
-      'default' => false
+      'default' => 0
     ],
-    # Shows loaded .env variables
-    'show_env_vars' => [
+    'show_env_vars' => [ # Prints loaded .env variables
       'env' => 'SHOW_ENV_VARS',
-      'default' => true
+      'default' => 1
     ],
   ];
 
@@ -150,17 +173,6 @@ class PwInstaller extends Command
 
   public function handle()
   {
-    // Load .env file before printing variables
-    $envPath = getenv('DDEV_APPROOT');
-    if ($envPath && file_exists($envPath . '/.env')) {
-      $dotenv = \Dotenv\Dotenv::createImmutable($envPath);
-      $dotenv->load();
-    } elseif (file_exists(dirname(__DIR__, 3) . '/.env')) {
-      $envPath = dirname(__DIR__, 3);
-      $dotenv = \Dotenv\Dotenv::createImmutable($envPath);
-      $dotenv->load();
-    }
-
     $this->lazy = $this->option('lazy') ? true : false;
 
     if ($this->ddevExists() and !$this->ddev()) {
@@ -179,7 +191,7 @@ class PwInstaller extends Command
       return self::SUCCESS;
     }
 
-    if ($this->getLazyValue('show_env_vars')) {
+    if ($this->getLazyValue('show_env_vars') == 1) {
       $this->printEnvVars();
     }
 
@@ -212,7 +224,7 @@ class PwInstaller extends Command
     // execute the step
     $method = "step" . ucfirst($step);
     $next = $this->$method();
-    if ($this->getLazyValue('interactive_shell')) {
+    if ($this->getLazyValue('debug') == 1) {
       $this->warn("Step $step (interactive shell enabled)");
       $this->pause([
         'browser' => $this->browser,
@@ -378,7 +390,7 @@ class PwInstaller extends Command
   {
     $this->write("Setup admin panel and user");
     $form = $this->fillForm($this->getInstallerSettings());
-    if ($this->getLazyValue('debug') && $this->output->isVeryVerbose()) var_dump($form->getValues());
+    if ($this->getLazyValue('debug') == 1 && $this->output->isVeryVerbose()) var_dump($form->getValues());
     $this->browser->submitForm("Continue", $form->getValues());
   }
 
@@ -810,37 +822,23 @@ class PwInstaller extends Command
     return $t;
   }
 
-  private function getEnvDefaults()
-  {
-    $envPath = getenv('DDEV_APPROOT');
-    if ($envPath && file_exists($envPath . '/.env')) {
-      $dotenv = \Dotenv\Dotenv::createImmutable($envPath);
-      $dotenv->load();
-    } elseif (file_exists(dirname(__DIR__, 3) . '/.env')) {
-      $envPath = dirname(__DIR__, 3);
-      $dotenv = \Dotenv\Dotenv::createImmutable($envPath);
-      $dotenv->load();
-    } else {
-      $this->warn("No .env file found. Using defaults.");
-    }
-
-    $envDefaults = [];
-    $settings = $this->getInstallerSettings();
-    foreach (array_keys($settings) as $key) {
-      $envKey = strtoupper($key); // .env keys are uppercase
-      if (isset($_ENV[$envKey])) {
-        $envDefaults[$key] = $_ENV[$envKey];
-      }
-    }
-    return $envDefaults;
-  }
-
   public function getInstallerSettings()
   {
     $settings = [];
     foreach ($this->installerConfig as $key => $info) {
       $envKey = $info['env'];
-      $settings[$key] = isset($_ENV[$envKey]) ? $_ENV[$envKey] : $info['default'];
+      $value = isset($_ENV[$envKey]) ? $_ENV[$envKey] : $info['default'];
+      // Normalize debugMode, show_env_vars, debug, downloadProcesswire to 1/0
+      if (in_array($key, ['debugMode', 'show_env_vars', 'debug', 'downloadProcesswire'], true)) {
+        if (is_bool($value)) {
+          $value = $value ? 1 : 0;
+        } elseif (is_string($value)) {
+          $v = strtolower(trim($value));
+          if ($v === 'true' || $v === '1') $value = 1;
+          elseif ($v === 'false' || $v === '0' || $v === '') $value = 0;
+        }
+      }
+      $settings[$key] = $value;
     }
     return $settings;
   }
