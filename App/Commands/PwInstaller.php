@@ -7,6 +7,9 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\DomCrawler\Crawler;
 use Symfony\Component\DomCrawler\Field\ChoiceFormField;
 use Symfony\Component\HttpClient\HttpClient;
+use Dotenv\Dotenv;
+
+require_once dirname(__DIR__, 3) . '/vendor/autoload.php'; // Loads from one-command/vendor
 
 class PwInstaller extends Command
 {
@@ -22,34 +25,109 @@ class PwInstaller extends Command
   private $lazy = false;
 
   // All installer defaults in one place
-  private $lazyDefaults = [
-    // Host/General
-    // 'host' => 'foo.ddev.site', // host is autodetected but can be overridden
-    'debug' => false,
-    'download_processwire' => true,
-    'processwire_version' => 'dev',
-    'download_rockfrontend' => false,
-    'profile' => 'site-blank', // site-rockfrontend requires download_rockfrontend to be true
-    // Database
-    'dbName' => 'db',
-    'dbUser' => 'db',
-    'dbPass' => 'db',
-    'dbHost' => 'db',
-    'dbCon'  => 'Hostname',
-    'dbPort' => 3306,
-    'dbCharset' => 'utf8mb4',
-    'dbEngine' => 'InnoDB',
-    'dbTablesAction' => 'remove', // remove existing tables if pw is already installed
-    // Admin
-    'admin_name' => 'adm',
-    'username' => 'ddevadmin',
-    'userpass' => 'ddevadmin',
-    'userpass_confirm' => 'ddevadmin',
-    'useremail' => 'admin@example.com',
-    // Site
-    'timezone' => 'America/Bogota', // find yours at https://www.php.net/manual/en/timezones.php
-    'debugMode' => 1,
+  
+  private $installerConfig = [
+
+    'debug' => [
+      'env' => 'DEBUG',
+      'default' => false
+    ],
+    'downloadProcesswire' => [
+      'env' => 'DOWN_PROCESSWIRE',
+      'default' => true
+    ],
+    'processwireVersion' => [
+      'env' => 'PW_VERSION',
+      'default' => 'dev'
+    ],
+    'siteProfile' => [
+      'env' => 'SITE_PROFILE',
+      'default' => 'site-blank'
+    ],
+    'dbName' => [
+      'env' => 'DB_NAME',
+      'default' => 'db'
+    ],
+    'dbUser' => [
+      'env' => 'DB_USER',
+      'default' => 'db'
+    ],
+    'dbPass' => [
+      'env' => 'DB_PASS',
+      'default' => 'db'
+    ],
+    'dbHost' => [
+      'env' => 'DB_HOST',
+      'default' => 'db'
+    ],
+    'dbPort' => [
+      'env' => 'DB_PORT',
+      'default' => 3306
+    ],
+    'dbCharset' => [
+      'env' => 'DB_CHARSET',
+      'default' => 'utf8mb4'
+    ],
+    'dbEngine' => [
+      'env' => 'DB_ENGINE',
+      'default' => 'InnoDB'
+    ],
+    'dbCon' => [
+      'env' => 'DB_CON',
+      'default' => 'Hostname'
+    ],
+    'dbTablesAction' => [
+      'env' => 'DB_TABLES_ACTION',
+      'default' => 'remove'
+    ],
+    'admin_name' => [
+      'env' => 'ADMIN_NAME',
+      'default' => 'processwire'
+    ],
+    'username' => [
+      'env' => 'USERNAME',
+      'default' => 'ddevadmin'
+    ],
+    'userpass' => [
+      'env' => 'USERPASS',
+      'default' => 'ddevadmin'
+    ],
+    'useremail' => [
+      'env' => 'USEREMAIL',
+      'default' => 'admin@example.com'
+    ],
+    'timezone' => [
+      'env' => 'TIMEZONE',
+      'default' => 'utc'
+    ],
+    'chmodDir' => [
+      'env' => 'CHMOD_DIR',
+      'default' => '0755'
+    ],
+    'chmodFile' => [
+      'env' => 'CHMOD_FILE',
+      'default' => '0644'
+    ],
+    'httpHosts' => [
+      'env' => 'HTTP_HOSTS',
+      'default' => null
+    ],
+    'dbSocket' => [
+      'env' => 'DB_SOCKET',
+      'default' => null
+    ],
+    # Enable interactive shell
+    'interactive_shell' => [
+      'env' => 'INTERACTIVE_SHELL',
+      'default' => false
+    ],
+    # Shows loaded .env variables
+    'show_env_vars' => [
+      'env' => 'SHOW_ENV_VARS',
+      'default' => true
+    ],
   ];
+
 
   public function config()
   {
@@ -72,6 +150,17 @@ class PwInstaller extends Command
 
   public function handle()
   {
+    // Load .env file before printing variables
+    $envPath = getenv('DDEV_APPROOT');
+    if ($envPath && file_exists($envPath . '/.env')) {
+      $dotenv = \Dotenv\Dotenv::createImmutable($envPath);
+      $dotenv->load();
+    } elseif (file_exists(dirname(__DIR__, 3) . '/.env')) {
+      $envPath = dirname(__DIR__, 3);
+      $dotenv = \Dotenv\Dotenv::createImmutable($envPath);
+      $dotenv->load();
+    }
+
     $this->lazy = $this->option('lazy') ? true : false;
 
     if ($this->ddevExists() and !$this->ddev()) {
@@ -79,15 +168,19 @@ class PwInstaller extends Command
       return self::FAILURE;
     }
 
-    if (rtrim(getcwd(), '/') !== rtrim($this->app->docroot(), '/')) {
-        $this->warn("Warning: Current working directory is not the expected docroot!");
-        $this->warn("Current: " . getcwd());
-        $this->warn("Expected: " . $this->app->docroot());
-    }
+    // if (rtrim(getcwd(), '/') !== rtrim($this->app->docroot(), '/')) {
+    //     $this->warn("Warning: Current working directory is not the expected docroot!");
+    //     $this->warn("Current: " . getcwd());
+    //     $this->warn("Expected: " . $this->app->docroot());
+    // }
 
     if ($this->wire()) {
       $this->alert("ProcessWire is already installed!");
       return self::SUCCESS;
+    }
+
+    if ($this->getLazyValue('show_env_vars')) {
+      $this->printEnvVars();
     }
 
     $this->browser = new HttpBrowser(HttpClient::create());
@@ -119,8 +212,8 @@ class PwInstaller extends Command
     // execute the step
     $method = "step" . ucfirst($step);
     $next = $this->$method();
-    if ($this->getLazyValue('debug', false)) {
-      $this->warn("Step $step (debug mode) - entering interactive shell");
+    if ($this->getLazyValue('interactive_shell')) {
+      $this->warn("Step $step (interactive shell enabled)");
       $this->pause([
         'browser' => $this->browser,
       ]);
@@ -146,9 +239,14 @@ class PwInstaller extends Command
     $zip = 'https://github.com/baumrock/site-rockfrontend/releases/latest/download/site-rockfrontend.zip';
     $exists = is_dir("site-rockfrontend");
     if (file_exists('site-rockfrontend.zip')) $this->exec('rm site-rockfrontend.zip');
-    $download = $this->getLazyValue('download_rockfrontend', true);
-    if (!$exists && ($this->lazy ? $download : $this->confirm("Download RockFrontend Site Profile?", true))) {
-      $this->write('Downloading ...');
+    if ($this->lazy) {
+      $siteProfile = $this->getLazyValue('siteProfile');
+      $download = (strtolower(trim($siteProfile)) === 'site-rockfrontend');
+    } else {
+      $download = $this->confirm("Download RockFrontend Site Profile?", false);
+    }
+    if (!$exists && $download) {
+      $this->write('Downloading RockFrontend...');
       $this->exec("wget --quiet $zip");
       $this->write('Extracting files ...');
       $this->exec('unzip -q site-rockfrontend.zip');
@@ -169,19 +267,19 @@ class PwInstaller extends Command
     }
     $profiles = array_values(array_filter($profiles));
     if ($this->lazy) {
-      $profile = $this->getLazyValue('profile', $profiles[0]);
+      $siteProfile = $this->getLazyValue('siteProfile');
     } else {
-      // Determine default profile: CLI > lazyDefaults (case-insensitive) > first profile
+      // Determine default profile: CLI > installer settings (case-insensitive) > first profile
       $cliProfile = null;
       try {
-        $cliProfile = parent::option('profile');
+        $cliProfile = parent::option('siteProfile');
       } catch (\Throwable $th) {}
       $defaultProfile = $profiles[0];
       if ($cliProfile !== null && $cliProfile !== false) {
         $defaultProfile = $cliProfile;
       } else {
         foreach ($profiles as $p) {
-          if (trim(strtolower($p)) === trim(strtolower($this->lazyDefaults['profile']))) {
+          if (trim(strtolower($p)) === trim(strtolower($this->getInstallerSettings()['siteProfile']))) {
             $defaultProfile = $p;
             break;
           }
@@ -196,15 +294,15 @@ class PwInstaller extends Command
           break;
         }
       }
-      $profile = $this->choice(
+      $siteProfile = $this->choice(
         "Select profile to install [{$defaultProfile}]",
         $profiles,
         $defaultIndex
       );
     }
-    $this->write("Using profile $profile ...");
+    $this->write("Using profile $siteProfile ...");
     $this->browser->submitForm("Continue", [
-      'profile' => $profile,
+      'profile' => $siteProfile,
     ]);
   }
 
@@ -272,15 +370,15 @@ class PwInstaller extends Command
     $this->browser->getCrawler()->filter('h2')->each(function (Crawler $el) {
       $this->write("  " . $el->text());
     });
-    $form = $this->fillForm($this->lazyDefaults);
+    $form = $this->fillForm($this->getInstallerSettings());
     $this->browser->submitForm('Continue', $form->getValues());
   }
 
   public function stepAdmin()
   {
     $this->write("Setup admin panel and user");
-    $form = $this->fillForm($this->lazyDefaults);
-    if ($this->getLazyValue('debug', false) && $this->output->isVeryVerbose()) var_dump($form->getValues());
+    $form = $this->fillForm($this->getInstallerSettings());
+    if ($this->getLazyValue('debug') && $this->output->isVeryVerbose()) var_dump($form->getValues());
     $this->browser->submitForm("Continue", $form->getValues());
   }
 
@@ -323,21 +421,29 @@ class PwInstaller extends Command
   /**
    * Generic value getter for lazy mode
    */
-  private function getLazyValue($key, $default = null)
+  private function getLazyValue($key)
   {
     // CLI option always wins
     $cli = null;
     try {
       $cli = parent::option($key);
-    } catch (\Throwable $th) {}
-    if ($cli !== null && $cli !== false) return $cli;
-    // Lazy mode: use defaults if set
-    if ($this->lazy && array_key_exists($key, $this->lazyDefaults)) {
-      return $this->lazyDefaults[$key];
+      if ($cli !== null && $cli !== false) return $cli;
+    } catch (\Throwable $th) {
+      // Option not passed or not available
     }
-    // Fallback to provided default
-    return $default;
+
+    $settings = $this->getInstallerSettings();
+    if ($this->lazy && array_key_exists($key, $settings)) {
+      if ($settings[$key] !== null && $settings[$key] !== '') return $settings[$key];
+    }
+
+    // Always fallback to installerConfig default
+    if (array_key_exists($key, $this->installerConfig)) {
+      return $this->installerConfig[$key]['default'];
+    }
+    return null;
   }
+
 
   /**
    * Normalize a URL: remove :443 for https and :80 for http
@@ -418,7 +524,7 @@ class PwInstaller extends Command
       $field = $form[$name];
 
       // Defer value resolution: prefer CLI option, then defaults, then form value
-      $default = $this->getLazyValue($name, array_key_exists($name, $defaults) ? $defaults[$name] : $val);
+      $default = $this->getLazyValue($name);
       $promptDefault = $default;
       $label = $name;
       
@@ -468,8 +574,10 @@ class PwInstaller extends Command
         $label = "httpHosts (enter comma separated list)";
         if (!empty($default)) {
           $defaultLines = $this->cleanHttpHostsArray($default);
-          $promptDefault = implode("\n", $defaultLines);
+        } else {
+          $defaultLines = $this->cleanHttpHostsArray($field->getValue());
         }
+        $promptDefault = implode("\n", $defaultLines);
         if ($this->lazy) {
           $value = $promptDefault;
         } else {
@@ -488,8 +596,8 @@ class PwInstaller extends Command
         }
         if ($this->output->isVerbose()) $this->write("$name=$value");
       } elseif ($name == 'userpass') {
-        // Always use the default from lazyDefaults unless overridden
-        $promptDefault = $this->getLazyValue('userpass', $promptDefault);
+        // Always use the default from installer settings unless overridden
+        $promptDefault = $this->getLazyValue('userpass');
         do {
           if ($this->lazy) {
             $value = $promptDefault;
@@ -548,6 +656,16 @@ class PwInstaller extends Command
         ], 0);
         $this->warn("\ndbTablesAction: $value"); // show always
         $skipAll = true;
+      } elseif ($name == 'dbSocket') {
+        $label = 'dbSocket';
+        if (!empty($default)) {
+          $promptDefault = $default;
+        } // else, do not set $promptDefault, let form's default be used
+        if ($this->lazy) {
+          $value = isset($promptDefault) ? $promptDefault : $field->getValue();
+        } else {
+          $value = $this->ask($label, isset($promptDefault) ? $promptDefault : $field->getValue());
+        }
       } else {
         if ($field instanceof ChoiceFormField) {
           $this->browser
@@ -557,10 +675,15 @@ class PwInstaller extends Command
               $options[] = $el->attr('value');
             });
         }
-        if ($this->lazy) {
-          $value = $promptDefault;
+        if (!empty($promptDefault)) {
+          $defaultValue = $promptDefault;
         } else {
-          $value = $this->askWithCompletion($name, $options, $promptDefault);
+          $defaultValue = $field->getValue();
+        }
+        if ($this->lazy) {
+          $value = $defaultValue;
+        } else {
+          $value = $this->askWithCompletion($name, $options, $defaultValue);
         }
         if ($this->output->isVerbose()) $this->write("$name=$value");
       }
@@ -584,10 +707,10 @@ class PwInstaller extends Command
         $this->write("");
         die();
       }
-      $download = $this->getLazyValue('download_processwire', true);
+      $download = $this->getLazyValue('downloadProcesswire');
       if ($this->lazy ? $download : $this->confirm("Download ProcessWire now?", true)) {
         $versions = ['master', 'dev'];
-        $version = $this->getLazyValue('processwire_version', 'dev');
+        $version = $this->getLazyValue('processwireVersion');
         if (!$this->lazy) {
           $version = $this->choice("Which version?", $versions, $version);
         }
@@ -625,7 +748,8 @@ class PwInstaller extends Command
     } elseif ($this->option('host')) {
       $host = $this->option('host');
     } elseif ($this->lazy) {
-      $host = $this->getLazyValue('host', $defaulthost);
+      $host = $this->getLazyValue('host');
+      if (!$host) $host = $defaulthost;
     } else {
       $host = $this->ask('Enter host', $defaulthost);
     }
@@ -684,5 +808,49 @@ class PwInstaller extends Command
       }
     }
     return $t;
+  }
+
+  private function getEnvDefaults()
+  {
+    $envPath = getenv('DDEV_APPROOT');
+    if ($envPath && file_exists($envPath . '/.env')) {
+      $dotenv = \Dotenv\Dotenv::createImmutable($envPath);
+      $dotenv->load();
+    } elseif (file_exists(dirname(__DIR__, 3) . '/.env')) {
+      $envPath = dirname(__DIR__, 3);
+      $dotenv = \Dotenv\Dotenv::createImmutable($envPath);
+      $dotenv->load();
+    } else {
+      $this->warn("No .env file found. Using defaults.");
+    }
+
+    $envDefaults = [];
+    $settings = $this->getInstallerSettings();
+    foreach (array_keys($settings) as $key) {
+      $envKey = strtoupper($key); // .env keys are uppercase
+      if (isset($_ENV[$envKey])) {
+        $envDefaults[$key] = $_ENV[$envKey];
+      }
+    }
+    return $envDefaults;
+  }
+
+  public function getInstallerSettings()
+  {
+    $settings = [];
+    foreach ($this->installerConfig as $key => $info) {
+      $envKey = $info['env'];
+      $settings[$key] = isset($_ENV[$envKey]) ? $_ENV[$envKey] : $info['default'];
+    }
+    return $settings;
+  }
+
+  private function printEnvVars() {
+    $this->info("\nLoaded .env variables:");
+    foreach ($this->installerConfig as $key => $info) {
+      $envKey = $info['env'];
+      $value = isset($_ENV[$envKey]) ? $_ENV[$envKey] : null;
+      $this->write("  $envKey=" . var_export($value, true));
+    }
   }
 }
