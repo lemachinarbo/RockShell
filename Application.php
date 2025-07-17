@@ -31,8 +31,8 @@ class Application extends ConsoleApplication
     $version .= ' @ PHP' . phpversion();
     parent::__construct($name, $version);
     $this->root = $this->normalizeSeparators(dirname(__DIR__)) . "/";
-    $this->docroot =
-      rtrim($this->root . (getenv('DDEV_DOCROOT') ?: getenv('ROCKSHELL_DOCROOT')), "/") . "/";
+    $this->docroot = $this->findDocroot();  
+
   }
 
   /**
@@ -78,6 +78,32 @@ class Application extends ConsoleApplication
   {
     return $this->docroot;
   }
+
+  /**
+   * Get ProcessWire root path.
+   * Checks common locations for the ProcessWire core file and returns the root path if found.
+   *
+   * @return string|null Root path with trailing slash or null if not found.
+   */
+
+  public function findDocroot()
+  {
+    $docrootEnv = getenv('DDEV_DOCROOT') ?: getenv('ROCKSHELL_DOCROOT');
+    $paths = array_filter([
+      $docrootEnv ? rtrim($this->root . $docrootEnv, '/') . '/' : null,
+      $docrootEnv ? dirname(rtrim($this->root . $docrootEnv, '/')) . '/' : null,
+      $this->root . 'public/',
+    ]);
+
+    foreach ($paths as $path) {
+      if (is_file($path . 'wire/core/ProcessWire.php')) {
+        echo "Found ProcessWire at: $path\n";
+        return rtrim($path, '/') . '/';
+      }
+    }
+
+    return null;
+  } 
 
   /**
    * Find all command files in the current project
