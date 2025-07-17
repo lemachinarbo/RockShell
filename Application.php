@@ -80,29 +80,24 @@ class Application extends ConsoleApplication
   }
 
   /**
-   * Get ProcessWire root path.
-   * Checks common locations for the ProcessWire core file and returns the root path if found.
+   * Returns the ProcessWire document root path.
    *
-   * @return string|null Root path with trailing slash or null if not found.
+   * @return string Document root path with trailing slash.
    */
 
   public function findDocroot()
   {
     $docrootEnv = getenv('DDEV_DOCROOT') ?: getenv('ROCKSHELL_DOCROOT');
-    $paths = array_filter([
-      $docrootEnv ? rtrim($this->root . $docrootEnv, '/') . '/' : null,
-      $docrootEnv ? dirname(rtrim($this->root . $docrootEnv, '/')) . '/' : null,
-      $this->root . 'public/',
-    ]);
-
-    foreach ($paths as $path) {
-      if (is_file($path . 'wire/core/ProcessWire.php')) {
-        echo "Found ProcessWire at: $path\n";
-        return rtrim($path, '/') . '/';
-      }
+    if ($docrootEnv) {
+      $candidate = rtrim($this->root . $docrootEnv, '/') . '/';
+      if (is_dir($candidate)) return $candidate;
     }
-
-    return null;
+    // If public/ exists, use it
+    if (is_dir($this->root . 'public/')) {
+      return $this->root . 'public/';
+    }
+    // Fallback to root
+    return $this->root;
   } 
 
   /**
